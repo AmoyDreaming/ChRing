@@ -1,0 +1,27 @@
+{
+  "name": "poly-a_visualization",
+  "version": "0.1.0",
+  "description": "poly-a_visualization",
+  "author": "Pau Lau",
+  "license": "MIT",
+  "repository": {
+    "type": "http",
+    "url": "http://gitlab.amoydreaming.com/pau/Traffic-Viz-Platform.git"
+  },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron main.js"
+  },
+  "devDependencies": {
+    "electron": "^1.8.4",
+    "electron-rebuild": "^1.7.3"
+  },
+  "dependencies": {
+    "color-hash": "^1.0.3",
+    "jquery": "^3.2.1",
+    "mathjs": "^4.0.1",
+    "d3": "^4.0.0",
+    "mongodb": "^2.2.33",
+    "p5": "^0.6.0"
+  }
+}
