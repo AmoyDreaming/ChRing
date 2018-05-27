@@ -5,8 +5,7 @@ var width = 800,
     paWidth = 50;
     radius = Math.min(width, height) / 2;
 
-var data = [];
-var paposition = [];
+var gdata = [];
 var pdata = [];
 var summary = {'species': 'ARAB', 'chr': 'chloroplast', 'length': 0, 'gene': 0, 'pa': 0};
 var colors = [];
@@ -29,17 +28,20 @@ var svg = d3.select("#chr").append("svg")
 MongoClient1.connect('mongodb://localhost:27017/arab', function(err, db) {
     cursor = db.collection('chloroplast').find().sort({'start': 1});
     cursor.toArray().then(function(docs){
-        var lastEnd = 0;
+        var glastEnd = 0;
         for(i = 0; i < docs.length; i ++){
             doc = docs[i];
-            if(doc['start'] - lastEnd > 1){
-                data.push({'gene': 'intron', 'len': doc['start'] - lastEnd});
+            glastEnd = Math.max(doc['start'], doc['end']);
+            // prepare data of gene
+            if(doc['start'] - glastEnd > 1){
+                gdata.push({'gene': 'intron', 'len': Math.max(doc['start'], doc['end']) - glastEnd, 'pa': []});
+                pdata.push({'pos': glastEnd, 'len': Math.max(doc['start'], doc['end']) - glastEnd, 'type': 'none'})
                 colorHash = new ColorHash();
                 colors.push('#ffffff');
             }
             colorHash = new ColorHash();
             colors.push(colorHash.hex(doc['gene'].slice(3)));
-            data.push({
+            gdata.push({
                 'gene': doc['gene'],
                 'type': doc['type'],
                 'len': Math.abs(doc['end']-doc['start']),
@@ -47,7 +49,27 @@ MongoClient1.connect('mongodb://localhost:27017/arab', function(err, db) {
                 'end': doc['end'],
                 'pa': doc['pa']
             });
-            lastEnd = Math.max(doc['start'], doc['end']);
+
+            // prepare data of pa
+            pa_raw = doc['pa'];
+            pa = [];
+            if(doc['pa'].length == 0){
+                pdata.push({'pos': Math.min(doc['start'], doc['end']), 'len': Math.abs(doc['end']-doc['start']), 'type':'none'});
+                continue;
+            }
+            for(j = 0; j < doc['pa'].length; j++){
+                pa.push(doc['pa'][j]['coord']);
+            }
+            pa.sort(function(a,b){return a-b});
+            plastEnd = Math.min(doc['start'], doc['end']);
+            for(k = 0; k < pa.length; k++){
+                pos = pa[k];
+                if(pos-plastEnd != 0){
+                    pdata.push({'pos': plastEnd, 'len': pos-plastEnd-1, 'type':'none'});
+                }
+                pdata.push({'pos': pos, 'len': 1, 'type':'pa'});
+                plastEnd = pos+1;
+            }
         }
 
         // create gene arc model
@@ -66,7 +88,7 @@ MongoClient1.connect('mongodb://localhost:27017/arab', function(err, db) {
 
         // draw gene
         svg.selectAll('.gene')
-            .data(pie_ge(data))
+            .data(pie_ge(gdata))
           .enter().append('path')
             .attr('d', arc_ge)
             .style('fill', function(d){return colors[d.index];})
@@ -94,84 +116,52 @@ MongoClient1.connect('mongodb://localhost:27017/arab', function(err, db) {
         $('#genenum').html('GENE NUM: '+summary.gene);
         $('#panum').html('PA NUM: '+summary.pa);
 
+        // create pa arc model
+        var arc_pa = d3.arc()
+            .outerRadius(radius - geneWidth)
+            .innerRadius(radius - geneWidth - paWidth);
+
+        // create pa pie model
+        var pie_pa = d3.pie()
+            .startAngle(-0.25 * Math.PI)
+            .endAngle(1.74 * Math.PI)
+            .sort(function(d){
+                return d.pos;
+            })
+            .value(function(d){
+                return d.len;
+            })
+            .padAngle(0);;
+
+        // draw pa
+        svg.selectAll('.chrpa')
+            .data(pie_pa(pdata))
+            .enter().append('path')
+            .sort(function(a,b){return a-b})
+            .attr('d', arc_pa)
+            .style('fill', function(d){
+                if(d.data.type == 'pa') return '#000000';
+                else return '#ffffff';
+            })
+            .style('stroke', function(d){
+                if(d.data.type == 'pa') return '#000000';
+                else return '#ffffff';
+            })
+            .style('stroke-width', function(d){
+                if(d.data.type == 'pa') return 0.5;
+                else return 0;
+            })
+            .attr('class', 'pa')
+            .attr('data', function(d){return d.data.pos;})
+            .on('click', pover);
+
         db.close();
     });
 });
 
-MongoClient2.connect('mongodb://localhost:27017/plantAPA', function(err, db) {
-    cursor_1 = db.collection('t_arab_pa1').find({"chr":"chloroplast"});
-    cursor_1.toArray().then(function(docs1){
-        cursor_2 = db.collection('t_arab_pa2').find({"chr":"chloroplast"});
-        cursor_2.toArray().then(function(docs2){
-            for(i = 0; i < docs1.length; i ++){
-                doc = docs1[i];
-                paposition.push(parseInt(doc['coord']));
-            }
-
-            for(i = 0; i < docs2.length; i ++){
-                doc = docs2[i];
-                if(paposition.indexOf(parseInt(doc['coord'])) == -1){
-                    paposition.push(parseInt(doc['coord']));
-                }
-            }
-
-            paposition.sort(function(a,b){return a-b;});
-
-            var endposition;
-            
-            cursor = db.collection('t_arab_gff').find({"chr":"chloroplast"}).sort({"ftr_end": -1});
-            cursor.toArray().then(function(docs){
-                doc = docs[0];
-                endposition = doc['ftr_end'];
-                var lastPos = 0;
-                for(i = 0; i < paposition.length; i ++){
-                    pos = paposition[i];
-                    if(pos - lastPos > 1){
-                        pdata.push({'pos':lastPos+1,'len':pos-lastPos,'type':'none'});
-                    }
-                    pdata.push({'pos':pos,'len':1,'type':'pa'});
-                    lastPos = pos;
-                    if(i == paposition.length -1 && endposition - lastPos > 0){
-                        pdata.push({'pos':lastPos+1,'len':endposition - lastPos});
-                    }
-                }
-                
-                console.log(endposition,lastPos,endposition - lastPos);
-
-                // create pa arc model
-                var arc_pa = d3.arc()
-                    .outerRadius(radius - geneWidth)
-                    .innerRadius(radius - geneWidth - paWidth);
-
-                // create pa pie model
-                var pie_pa = d3.pie()
-                    .startAngle(-0.25 * Math.PI)
-                    .endAngle(1.74 * Math.PI)
-                    .sort(function(d){
-                        return -d.pos;
-                    })
-                    .value(function(d){
-                        return d.len;
-                    })
-                    .padAngle(0);;
-
-                // draw pa
-                svg.selectAll('.chrpa')
-                    .data(pie_pa(pdata))
-                    .enter().append('path')
-                    .attr('d', arc_pa)
-                    .style('fill', function(d){
-                        if(d.type == 'pa') return '#333333';
-                        else return '#ffffff';
-                    })
-                    .style('stroke', '#333333')
-                    .attr('class', 'pa');
-
-                db.close();
-            });
-        });
-    });
-});
+function pover(){
+    console.log(this.getAttribute('data'));
+}
 
 function over(){
     index = this.getAttribute('index');
@@ -194,12 +184,11 @@ var axis_ge = d3.select('#axis')
     .append('svg')
     .attr('width', 1200)
     .attr('height', 30);
-    // .attr("transform", "translate(0," + height/2 + ")");
 
 function drawGene(index){
     $('#gene').empty();
     d3.select('.axis_ge').remove();
-    d = data[index];
+    d = gdata[index];
     c = colors[index];
     $('#gene').css('background-color', c);
     $('#g').html('GENE: ' + d['gene']);
